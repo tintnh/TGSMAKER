@@ -22,7 +22,6 @@ export const Canvas = forwardRef<HTMLCanvasElement, CanvasProps>(
 
     useImperativeHandle(ref, () => canvasRef.current!, [])
 
-    // Initialize canvas
     useEffect(() => {
       const canvas = canvasRef.current
       if (!canvas) return
@@ -31,6 +30,7 @@ export const Canvas = forwardRef<HTMLCanvasElement, CanvasProps>(
       if (!ctx) return
 
       contextRef.current = ctx
+
       canvas.width = 512
       canvas.height = 512
 
@@ -38,7 +38,6 @@ export const Canvas = forwardRef<HTMLCanvasElement, CanvasProps>(
       ctx.imageSmoothingQuality = "high"
     }, [])
 
-    // Load images (including SVG as Blob)
     useEffect(() => {
       layers.forEach((layer) => {
         if (!imagesRef.current.has(layer.id)) {
@@ -48,69 +47,39 @@ export const Canvas = forwardRef<HTMLCanvasElement, CanvasProps>(
             imagesRef.current.set(layer.id, img)
             renderCanvas()
           }
-          img.onerror = () => {
-            console.error("Failed to load image for layer", layer.name)
-          }
-
-          if (layer.src.trim().startsWith("<svg")) {
-            const blob = new Blob([layer.src], { type: "image/svg+xml" })
-            const url = URL.createObjectURL(blob)
-            img.src = url
-          } else {
-            img.src = layer.src
-          }
+          img.src = layer.src
         }
       })
     }, [layers])
 
-    // Interpolation
     const getInterpolatedValues = (layer: ImageLayer) => {
       const { keyframes } = layer
-      const currentTime = animationState.currentTime
+      const t = animationState.currentTime
+      if (keyframes.length === 0) return layer
 
-      if (keyframes.length === 0) {
-        return {
-          x: layer.x,
-          y: layer.y,
-          rotation: layer.rotation,
-          scaleX: layer.scaleX,
-          scaleY: layer.scaleY,
-          opacity: layer.opacity,
-        }
-      }
+      if (keyframes.length === 1 || t <= keyframes[0].time) return keyframes[0]
+      if (t >= keyframes[keyframes.length - 1].time) return keyframes[keyframes.length - 1]
 
-      if (keyframes.length === 1 || currentTime <= keyframes[0].time) {
-        return keyframes[0]
-      }
-
-      if (currentTime >= keyframes[keyframes.length - 1].time) {
-        return keyframes[keyframes.length - 1]
-      }
-
-      let prev = keyframes[0]
-      let next = keyframes[keyframes.length - 1]
-
+      let prev = keyframes[0], next = keyframes[keyframes.length - 1]
       for (let i = 0; i < keyframes.length - 1; i++) {
-        if (currentTime >= keyframes[i].time && currentTime <= keyframes[i + 1].time) {
+        if (t >= keyframes[i].time && t <= keyframes[i + 1].time) {
           prev = keyframes[i]
           next = keyframes[i + 1]
           break
         }
       }
 
-      const t = (currentTime - prev.time) / (next.time - prev.time)
-
+      const k = (t - prev.time) / (next.time - prev.time)
       return {
-        x: prev.x + (next.x - prev.x) * t,
-        y: prev.y + (next.y - prev.y) * t,
-        rotation: prev.rotation + (next.rotation - prev.rotation) * t,
-        scaleX: prev.scaleX + (next.scaleX - prev.scaleX) * t,
-        scaleY: prev.scaleY + (next.scaleY - prev.scaleY) * t,
-        opacity: prev.opacity + (next.opacity - prev.opacity) * t,
+        x: prev.x + (next.x - prev.x) * k,
+        y: prev.y + (next.y - prev.y) * k,
+        rotation: prev.rotation + (next.rotation - prev.rotation) * k,
+        scaleX: prev.scaleX + (next.scaleX - prev.scaleX) * k,
+        scaleY: prev.scaleY + (next.scaleY - prev.scaleY) * k,
+        opacity: prev.opacity + (next.opacity - prev.opacity) * k,
       }
     }
 
-    // Draw canvas
     const renderCanvas = () => {
       const canvas = canvasRef.current
       const ctx = contextRef.current
@@ -140,14 +109,14 @@ export const Canvas = forwardRef<HTMLCanvasElement, CanvasProps>(
         ctx.rotate((values.rotation * Math.PI) / 180)
         ctx.scale(values.scaleX, values.scaleY)
 
-        const width = img.width
-        const height = img.height
-        ctx.drawImage(img, -width / 2, -height / 2, width, height)
+        const w = img.width
+        const h = img.height
+        ctx.drawImage(img, -w / 2, -h / 2, w, h)
 
         if (selectedLayerId === layer.id) {
           ctx.strokeStyle = "#3b82f6"
           ctx.lineWidth = 2 / Math.min(values.scaleX, values.scaleY)
-          ctx.strokeRect(-width / 2, -height / 2, width, height)
+          ctx.strokeRect(-w / 2, -h / 2, w, h)
         }
 
         ctx.restore()
@@ -158,69 +127,55 @@ export const Canvas = forwardRef<HTMLCanvasElement, CanvasProps>(
       renderCanvas()
     }, [layers, selectedLayerId, animationState.currentTime])
 
-    // Events
     const getEventPos = (event: React.MouseEvent | React.TouchEvent) => {
       const canvas = canvasRef.current
-      if (!canvas) return { x: 0, y: 0 }
-
-      const rect = canvas.getBoundingClientRect()
-      const scaleX = canvas.width / rect.width
-      const scaleY = canvas.height / rect.height
+      const rect = canvas?.getBoundingClientRect()
+      const scaleX = canvas!.width / rect!.width
+      const scaleY = canvas!.height / rect!.height
 
       let clientX, clientY
       if ("touches" in event) {
-        clientX = event.touches[0]?.clientX || event.changedTouches[0]?.clientX || 0
-        clientY = event.touches[0]?.clientY || event.changedTouches[0]?.clientY || 0
+        clientX = event.touches[0]?.clientX || 0
+        clientY = event.touches[0]?.clientY || 0
       } else {
         clientX = event.clientX
         clientY = event.clientY
       }
 
       return {
-        x: (clientX - rect.left) * scaleX,
-        y: (clientY - rect.top) * scaleY,
+        x: (clientX - rect!.left) * scaleX,
+        y: (clientY - rect!.top) * scaleY,
       }
     }
 
-    const handlePointerDown = (event: React.MouseEvent | React.TouchEvent) => {
-      const pos = getEventPos(event)
-
+    const handlePointerDown = (e: React.MouseEvent | React.TouchEvent) => {
+      const pos = getEventPos(e)
       for (let i = layers.length - 1; i >= 0; i--) {
         const layer = layers[i]
         if (!layer.visible) continue
-
         const img = imagesRef.current.get(layer.id)
         if (!img) continue
 
-        const values = getInterpolatedValues(layer)
-        const halfWidth = (img.width * values.scaleX) / 2
-        const halfHeight = (img.height * values.scaleY) / 2
+        const { x, y, scaleX, scaleY } = getInterpolatedValues(layer)
+        const halfW = (img.width * scaleX) / 2
+        const halfH = (img.height * scaleY) / 2
 
-        if (
-          pos.x >= values.x - halfWidth &&
-          pos.x <= values.x + halfWidth &&
-          pos.y >= values.y - halfHeight &&
-          pos.y <= values.y + halfHeight
-        ) {
+        if (pos.x >= x - halfW && pos.x <= x + halfW && pos.y >= y - halfH && pos.y <= y + halfH) {
           onLayerSelect(layer.id)
           isDragging.current = true
-          dragOffset.current = {
-            x: pos.x - values.x,
-            y: pos.y - values.y,
-          }
+          dragOffset.current = { x: pos.x - x, y: pos.y - y }
           break
         }
       }
     }
 
-    const handlePointerMove = (event: React.MouseEvent | React.TouchEvent) => {
+    const handlePointerMove = (e: React.MouseEvent | React.TouchEvent) => {
       if (!isDragging.current || !selectedLayerId) return
-
-      const pos = getEventPos(event)
-      const newX = pos.x - dragOffset.current.x
-      const newY = pos.y - dragOffset.current.y
-
-      onLayerUpdate(selectedLayerId, { x: newX, y: newY })
+      const pos = getEventPos(e)
+      onLayerUpdate(selectedLayerId, {
+        x: pos.x - dragOffset.current.x,
+        y: pos.y - dragOffset.current.y,
+      })
     }
 
     const handlePointerUp = () => {
