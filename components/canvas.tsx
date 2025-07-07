@@ -1,64 +1,253 @@
 "use client"
 
-import { forwardRef, useEffect, useRef } from "react"
-import type { AnimationState, ImageLayer } from "@/app/page"
+import type React from "react"
+import { useEffect, useRef, forwardRef, useImperativeHandle } from "react"
+import type { ImageLayer, AnimationState } from "@/app/page"
 
 interface CanvasProps {
   layers: ImageLayer[]
   selectedLayerId: string | null
-  onLayerSelect: (id: string) => void
-  onLayerUpdate: (id: string, updates: Partial<ImageLayer>) => void
+  onLayerSelect: (layerId: string) => void
+  onLayerUpdate: (layerId: string, updates: Partial<ImageLayer>) => void
   animationState: AnimationState
 }
 
 export const Canvas = forwardRef<HTMLCanvasElement, CanvasProps>(
   ({ layers, selectedLayerId, onLayerSelect, onLayerUpdate, animationState }, ref) => {
-    const localRef = useRef<HTMLCanvasElement>(null)
-    const canvasRef = (ref as any) || localRef
-    const width = 512
-    const height = 512
+    const canvasRef = useRef<HTMLCanvasElement>(null)
+    const contextRef = useRef<CanvasRenderingContext2D | null>(null)
+    const imagesRef = useRef<Map<string, HTMLImageElement>>(new Map())
+    const isDragging = useRef(false)
+    const dragOffset = useRef({ x: 0, y: 0 })
 
+    useImperativeHandle(ref, () => canvasRef.current!, [])
+
+    // Initialize canvas
     useEffect(() => {
-      const ctx = canvasRef.current?.getContext("2d")
+      const canvas = canvasRef.current
+      if (!canvas) return
+
+      const ctx = canvas.getContext("2d")
       if (!ctx) return
 
-      ctx.clearRect(0, 0, width, height)
+      contextRef.current = ctx
+      canvas.width = 512
+      canvas.height = 512
+
+      ctx.imageSmoothingEnabled = true
+      ctx.imageSmoothingQuality = "high"
+    }, [])
+
+    // Load images (including SVG as Blob)
+    useEffect(() => {
+      layers.forEach((layer) => {
+        if (!imagesRef.current.has(layer.id)) {
+          const img = new Image()
+          img.crossOrigin = "anonymous"
+          img.onload = () => {
+            imagesRef.current.set(layer.id, img)
+            renderCanvas()
+          }
+          img.onerror = () => {
+            console.error("Failed to load image for layer", layer.name)
+          }
+
+          if (layer.src.trim().startsWith("<svg")) {
+            const blob = new Blob([layer.src], { type: "image/svg+xml" })
+            const url = URL.createObjectURL(blob)
+            img.src = url
+          } else {
+            img.src = layer.src
+          }
+        }
+      })
+    }, [layers])
+
+    // Interpolation
+    const getInterpolatedValues = (layer: ImageLayer) => {
+      const { keyframes } = layer
+      const currentTime = animationState.currentTime
+
+      if (keyframes.length === 0) {
+        return {
+          x: layer.x,
+          y: layer.y,
+          rotation: layer.rotation,
+          scaleX: layer.scaleX,
+          scaleY: layer.scaleY,
+          opacity: layer.opacity,
+        }
+      }
+
+      if (keyframes.length === 1 || currentTime <= keyframes[0].time) {
+        return keyframes[0]
+      }
+
+      if (currentTime >= keyframes[keyframes.length - 1].time) {
+        return keyframes[keyframes.length - 1]
+      }
+
+      let prev = keyframes[0]
+      let next = keyframes[keyframes.length - 1]
+
+      for (let i = 0; i < keyframes.length - 1; i++) {
+        if (currentTime >= keyframes[i].time && currentTime <= keyframes[i + 1].time) {
+          prev = keyframes[i]
+          next = keyframes[i + 1]
+          break
+        }
+      }
+
+      const t = (currentTime - prev.time) / (next.time - prev.time)
+
+      return {
+        x: prev.x + (next.x - prev.x) * t,
+        y: prev.y + (next.y - prev.y) * t,
+        rotation: prev.rotation + (next.rotation - prev.rotation) * t,
+        scaleX: prev.scaleX + (next.scaleX - prev.scaleX) * t,
+        scaleY: prev.scaleY + (next.scaleY - prev.scaleY) * t,
+        opacity: prev.opacity + (next.opacity - prev.opacity) * t,
+      }
+    }
+
+    // Draw canvas
+    const renderCanvas = () => {
+      const canvas = canvasRef.current
+      const ctx = contextRef.current
+      if (!canvas || !ctx) return
+
+      ctx.clearRect(0, 0, canvas.width, canvas.height)
+
+      const checkSize = 20
+      for (let x = 0; x < canvas.width; x += checkSize) {
+        for (let y = 0; y < canvas.height; y += checkSize) {
+          ctx.fillStyle = (x / checkSize + y / checkSize) % 2 === 0 ? "#f0f0f0" : "#ffffff"
+          ctx.fillRect(x, y, checkSize, checkSize)
+        }
+      }
 
       layers.forEach((layer) => {
         if (!layer.visible) return
 
-        const img = new Image()
-        img.src = layer.src
+        const img = imagesRef.current.get(layer.id)
+        if (!img) return
 
-        img.onload = () => {
-          ctx.save()
+        const values = getInterpolatedValues(layer)
 
-          ctx.translate(layer.x, layer.y)
-          ctx.rotate((layer.rotation * Math.PI) / 180)
-          ctx.scale(layer.scaleX, layer.scaleY)
-          ctx.globalAlpha = layer.opacity
+        ctx.save()
+        ctx.globalAlpha = values.opacity
+        ctx.translate(values.x, values.y)
+        ctx.rotate((values.rotation * Math.PI) / 180)
+        ctx.scale(values.scaleX, values.scaleY)
 
-          // Draw centered image
-          ctx.drawImage(img, -img.width / 2, -img.height / 2)
+        const width = img.width
+        const height = img.height
+        ctx.drawImage(img, -width / 2, -height / 2, width, height)
 
-          ctx.restore()
+        if (selectedLayerId === layer.id) {
+          ctx.strokeStyle = "#3b82f6"
+          ctx.lineWidth = 2 / Math.min(values.scaleX, values.scaleY)
+          ctx.strokeRect(-width / 2, -height / 2, width, height)
         }
 
-        img.onerror = () => {
-          console.error("Failed to load image:", layer.name)
-        }
+        ctx.restore()
       })
-    }, [layers, animationState.currentTime])
+    }
+
+    useEffect(() => {
+      renderCanvas()
+    }, [layers, selectedLayerId, animationState.currentTime])
+
+    // Events
+    const getEventPos = (event: React.MouseEvent | React.TouchEvent) => {
+      const canvas = canvasRef.current
+      if (!canvas) return { x: 0, y: 0 }
+
+      const rect = canvas.getBoundingClientRect()
+      const scaleX = canvas.width / rect.width
+      const scaleY = canvas.height / rect.height
+
+      let clientX, clientY
+      if ("touches" in event) {
+        clientX = event.touches[0]?.clientX || event.changedTouches[0]?.clientX || 0
+        clientY = event.touches[0]?.clientY || event.changedTouches[0]?.clientY || 0
+      } else {
+        clientX = event.clientX
+        clientY = event.clientY
+      }
+
+      return {
+        x: (clientX - rect.left) * scaleX,
+        y: (clientY - rect.top) * scaleY,
+      }
+    }
+
+    const handlePointerDown = (event: React.MouseEvent | React.TouchEvent) => {
+      const pos = getEventPos(event)
+
+      for (let i = layers.length - 1; i >= 0; i--) {
+        const layer = layers[i]
+        if (!layer.visible) continue
+
+        const img = imagesRef.current.get(layer.id)
+        if (!img) continue
+
+        const values = getInterpolatedValues(layer)
+        const halfWidth = (img.width * values.scaleX) / 2
+        const halfHeight = (img.height * values.scaleY) / 2
+
+        if (
+          pos.x >= values.x - halfWidth &&
+          pos.x <= values.x + halfWidth &&
+          pos.y >= values.y - halfHeight &&
+          pos.y <= values.y + halfHeight
+        ) {
+          onLayerSelect(layer.id)
+          isDragging.current = true
+          dragOffset.current = {
+            x: pos.x - values.x,
+            y: pos.y - values.y,
+          }
+          break
+        }
+      }
+    }
+
+    const handlePointerMove = (event: React.MouseEvent | React.TouchEvent) => {
+      if (!isDragging.current || !selectedLayerId) return
+
+      const pos = getEventPos(event)
+      const newX = pos.x - dragOffset.current.x
+      const newY = pos.y - dragOffset.current.y
+
+      onLayerUpdate(selectedLayerId, { x: newX, y: newY })
+    }
+
+    const handlePointerUp = () => {
+      isDragging.current = false
+    }
 
     return (
-      <canvas
-        ref={canvasRef}
-        width={width}
-        height={height}
-        className="w-full h-auto border border-gray-300 rounded-md"
-      />
+      <div className="flex items-center justify-center h-full p-4">
+        <div className="relative">
+          <canvas
+            ref={canvasRef}
+            className="border border-gray-300 rounded-lg shadow-sm max-w-full max-h-full cursor-pointer touch-none"
+            style={{ aspectRatio: "1/1" }}
+            onMouseDown={handlePointerDown}
+            onMouseMove={handlePointerMove}
+            onMouseUp={handlePointerUp}
+            onTouchStart={handlePointerDown}
+            onTouchMove={handlePointerMove}
+            onTouchEnd={handlePointerUp}
+          />
+          <div className="absolute top-2 left-2 bg-black bg-opacity-50 text-white text-xs px-2 py-1 rounded">
+            512×512px
+          </div>
+        </div>
+      </div>
     )
-  }
+  },
 )
 
 Canvas.displayName = "Canvas"
