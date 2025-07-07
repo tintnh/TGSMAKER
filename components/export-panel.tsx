@@ -13,7 +13,7 @@ interface ExportPanelProps {
   canvasRef: React.RefObject<HTMLCanvasElement>
 }
 
-export function ExportPanel({ layers, animationState, canvasRef }: ExportPanelProps) {
+export function ExportPanel({ layers, animationState }: ExportPanelProps) {
   const [exporting, setExporting] = useState(false)
   const [fileName, setFileName] = useState("sticker")
 
@@ -21,14 +21,15 @@ export function ExportPanel({ layers, animationState, canvasRef }: ExportPanelPr
     try {
       setExporting(true)
 
-      // Convert animation data to compressed TGS format
-      const tgsBlob = await convertToTGS(layers, animationState)
+      const tgsData = await convertToTGS(layers, animationState)
 
-      // ✅ Force file extension as .tgs, not .gz
-      saveAs(tgsBlob, `${fileName.trim() || "sticker"}.tgs`)
-    } catch (error) {
-      console.error("Export failed:", error)
-      alert("Export failed. Check console for details.")
+      // 🟢 Correct: Force save as .tgs even though it's GZIP internally
+      const blob = new Blob([tgsData], { type: "application/gzip" })
+      const name = fileName.trim().replace(/\.tgs$/i, "") || "sticker"
+      saveAs(blob, `${name}.tgs`)
+    } catch (err) {
+      console.error("Export failed:", err)
+      alert("TGS export failed. Check console for details.")
     } finally {
       setExporting(false)
     }
@@ -37,12 +38,11 @@ export function ExportPanel({ layers, animationState, canvasRef }: ExportPanelPr
   return (
     <div className="space-y-4">
       <div>
-        <label className="block text-sm font-medium mb-1 text-gray-700">File Name</label>
+        <label className="block text-sm font-medium text-gray-700 mb-1">File name</label>
         <Input
           value={fileName}
           onChange={(e) => setFileName(e.target.value)}
-          placeholder="Enter file name"
-          className="w-full"
+          placeholder="sticker"
         />
       </div>
 
@@ -51,8 +51,8 @@ export function ExportPanel({ layers, animationState, canvasRef }: ExportPanelPr
         disabled={exporting}
         className="w-full"
       >
-        {exporting ? "Exporting..." : "Export .tgs"}
+        {exporting ? "Exporting..." : "Export as .tgs"}
       </Button>
     </div>
   )
-}
+    }
