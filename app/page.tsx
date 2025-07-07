@@ -48,7 +48,7 @@ export default function AnimationStudio() {
   const [selectedLayerId, setSelectedLayerId] = useState<string | null>(null)
   const [animationState, setAnimationState] = useState<AnimationState>({
     currentTime: 0,
-    duration: 3000, // 3 seconds
+    duration: 3000,
     isPlaying: false,
     fps: 30,
   })
@@ -58,39 +58,54 @@ export default function AnimationStudio() {
   const addImages = useCallback(
     (files: File[]) => {
       files.forEach(async (file, index) => {
-        // ① compress / down-scale ⬇️
-        const compressedSrc = await compressImage(file, { maxSize: 512, quality: 0.6 })
+        const isImage = file.type.startsWith("image/") || file.name.endsWith(".svg")
 
-        const newLayer: ImageLayer = {
-          id: `layer-${Date.now()}-${index}`,
-          name: file.name,
-          src: compressedSrc,
-          x: 256 + index * 20,
-          y: 256 + index * 20,
-          rotation: 0,
-          scaleX: 1,
-          scaleY: 1,
-          opacity: 1,
-          visible: true,
-          keyframes: [
-            {
-              time: 0,
-              x: 256 + index * 20,
-              y: 256 + index * 20,
-              rotation: 0,
-              scaleX: 1,
-              scaleY: 1,
-              opacity: 1,
-            },
-          ],
+        if (!isImage) {
+          alert(`⚠️ ${file.name} is not a supported image file.`)
+          return
         }
-        setLayers((prev) => [...prev, newLayer])
-        if (!selectedLayerId) {
-          setSelectedLayerId(newLayer.id)
+
+        try {
+          const compressedSrc = await compressImage(file, {
+            maxSize: 512,
+            quality: 0.6,
+          })
+
+          const newLayer: ImageLayer = {
+            id: `layer-${Date.now()}-${index}`,
+            name: file.name,
+            src: compressedSrc,
+            x: 256 + index * 20,
+            y: 256 + index * 20,
+            rotation: 0,
+            scaleX: 1,
+            scaleY: 1,
+            opacity: 1,
+            visible: true,
+            keyframes: [
+              {
+                time: 0,
+                x: 256 + index * 20,
+                y: 256 + index * 20,
+                rotation: 0,
+                scaleX: 1,
+                scaleY: 1,
+                opacity: 1,
+              },
+            ],
+          }
+
+          setLayers((prev) => [...prev, newLayer])
+          if (!selectedLayerId) {
+            setSelectedLayerId(newLayer.id)
+          }
+        } catch (error) {
+          console.error("Compression failed:", error)
+          alert(`❌ Failed to load ${file.name}`)
         }
       })
     },
-    [selectedLayerId],
+    [selectedLayerId]
   )
 
   const updateLayer = useCallback((layerId: string, updates: Partial<ImageLayer>) => {
@@ -106,7 +121,7 @@ export default function AnimationStudio() {
         setSelectedLayerId(null)
       }
     },
-    [selectedLayerId],
+    [selectedLayerId]
   )
 
   const reorderLayers = useCallback((fromIndex: number, toIndex: number) => {
@@ -141,7 +156,6 @@ export default function AnimationStudio() {
             />
           </Card>
 
-          {/* Playback Controls - Now directly under canvas */}
           <Card className="p-4">
             <PlaybackControls animationState={animationState} onAnimationStateChange={setAnimationState} />
           </Card>
