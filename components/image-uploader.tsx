@@ -1,9 +1,8 @@
-"use client"
+'use client'
 
 import type React from "react"
-
 import { useCallback } from "react"
-import { Upload, ImageIcon } from "lucide-react"
+import { Upload, FileIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 
 interface ImageUploaderProps {
@@ -13,32 +12,28 @@ interface ImageUploaderProps {
 export function ImageUploader({ onImagesAdded }: ImageUploaderProps) {
   const handleFileChange = useCallback(
     (event: React.ChangeEvent<HTMLInputElement>) => {
-      const files = Array.from(event.target.files || [])
-       const supportedTypes = ["image/png", "image/svg+xml", "image/jpeg"];
-const imageFiles = files.filter((file) => supportedTypes.includes(file.type));
-      if (imageFiles.length > 0) {
-        onImagesAdded(imageFiles)
+      const files = Array.from(event.target.files || []);
+      if (files.length > 0) {
+        onImagesAdded(files); // send all files (no filter)
       }
     },
     [onImagesAdded],
-  )
+  );
 
   const handleDrop = useCallback(
     (event: React.DragEvent) => {
-      event.preventDefault()
-      const files = Array.from(event.dataTransfer.files)
-      const supportedTypes = ["image/png", "image/svg+xml", "image/jpeg"];
-const imageFiles = files.filter((file) => supportedTypes.includes(file.type));
-      if (imageFiles.length > 0) {
-        onImagesAdded(imageFiles)
+      event.preventDefault();
+      const files = Array.from(event.dataTransfer.files);
+      if (files.length > 0) {
+        onImagesAdded(files); // send all files (no filter)
       }
     },
     [onImagesAdded],
-  )
+  );
 
   const handleDragOver = useCallback((event: React.DragEvent) => {
-    event.preventDefault()
-  }, [])
+    event.preventDefault();
+  }, []);
 
   return (
     <div
@@ -46,13 +41,21 @@ const imageFiles = files.filter((file) => supportedTypes.includes(file.type));
       onDrop={handleDrop}
       onDragOver={handleDragOver}
     >
-      <ImageIcon className="mx-auto h-12 w-12 text-gray-400 mb-4" />
-      <p className="text-sm text-gray-600 mb-4">Drag and drop PNG images here, or click to select</p>
-      <input type="file" multiple accept="image/png" onChange={handleFileChange} className="hidden" id="image-upload" />
+      <FileIcon className="mx-auto h-12 w-12 text-gray-400 mb-4" />
+      <p className="text-sm text-gray-600 mb-4">
+        Drag and drop <strong>any file</strong> here, or click to select
+      </p>
+      <input
+        type="file"
+        multiple
+        onChange={handleFileChange}
+        className="hidden"
+        id="file-upload"
+      />
       <Button asChild variant="outline">
-        <label htmlFor="image-upload" className="cursor-pointer">
+        <label htmlFor="file-upload" className="cursor-pointer">
           <Upload className="w-4 h-4 mr-2" />
-          Upload Images
+          Upload Files
         </label>
       </Button>
     </div>
