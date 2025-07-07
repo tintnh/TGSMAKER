@@ -2,60 +2,42 @@
 
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { convertToTGS } from "@/utils/tgs-converter"
-import { ImageLayer, AnimationState } from "@/app/page"
+import { toast } from "sonner"
 import { saveAs } from "file-saver"
+import { convertToTGS } from "@/utils/tgs-converter"
+import type { ImageLayer, AnimationState } from "@/app/page"
 
 interface ExportPanelProps {
   layers: ImageLayer[]
   animationState: AnimationState
-  canvasRef: React.RefObject<HTMLCanvasElement>
 }
 
 export function ExportPanel({ layers, animationState }: ExportPanelProps) {
   const [exporting, setExporting] = useState(false)
-  const [fileName, setFileName] = useState("sticker")
 
-  const handleExportTGS = async () => {
+  const handleTGSExport = async () => {
+    setExporting(true)
     try {
-      setExporting(true)
-
       const tgsData = await convertToTGS(layers, animationState)
 
-      const name = fileName.trim().replace(/\.tgs$/i, "") || "sticker"
+      // ✅ Save the file with a .tgs extension and custom name
+      const blob = new Blob([tgsData], { type: "application/gzip" })
+      saveAs(blob, "sticker.tgs")
 
-      // ✅ Use correct MIME type and .tgs extension
-      const blob = new Blob([tgsData], {
-        type: "application/x-tgs", // important: not application/gzip
-      })
-
-      saveAs(blob, `${name}.tgs`)
+      toast.success("TGS exported successfully!")
     } catch (err) {
-      console.error("TGS export failed:", err)
-      alert("Export failed. Check console for details.")
+      console.error("Export failed", err)
+      toast.error("TGS export failed.")
     } finally {
       setExporting(false)
     }
   }
 
   return (
-    <div className="space-y-4">
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">File name</label>
-        <Input
-          value={fileName}
-          onChange={(e) => setFileName(e.target.value)}
-          placeholder="sticker"
-        />
-      </div>
-
-      <Button
-        onClick={handleExportTGS}
-        disabled={exporting}
-        className="w-full"
-      >
-        {exporting ? "Exporting..." : "Export as .tgs"}
+    <div className="p-4 border-t border-gray-200">
+      <h2 className="text-lg font-semibold mb-2">Export</h2>
+      <Button onClick={handleTGSExport} disabled={exporting}>
+        {exporting ? "Exporting..." : "Export .tgs"}
       </Button>
     </div>
   )
