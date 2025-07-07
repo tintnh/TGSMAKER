@@ -48,7 +48,7 @@ export default function AnimationStudio() {
   const [selectedLayerId, setSelectedLayerId] = useState<string | null>(null)
   const [animationState, setAnimationState] = useState<AnimationState>({
     currentTime: 0,
-    duration: 3000,
+    duration: 3000, // 3 seconds
     isPlaying: false,
     fps: 30,
   })
@@ -58,27 +58,24 @@ export default function AnimationStudio() {
   const addImages = useCallback(
     (files: File[]) => {
       files.forEach(async (file, index) => {
-        const id = `layer-${Date.now()}-${index}`
-        let src = ""
-        let name = file.name
-
-        const x = 256 + index * 20
-        const y = 256 + index * 20
+        let src: string
 
         if (file.type === "image/svg+xml") {
-          const text = await file.text()
-          const blob = new Blob([text], { type: "image/svg+xml;charset=utf-8" })
-          src = URL.createObjectURL(blob)
+          // Handle SVG file
+          const svgText = await file.text()
+          const svgBlob = new Blob([svgText], { type: "image/svg+xml" })
+          src = URL.createObjectURL(svgBlob)
         } else {
+          // Handle raster image
           src = await compressImage(file, { maxSize: 512, quality: 0.6 })
         }
 
         const newLayer: ImageLayer = {
-          id,
-          name,
+          id: `layer-${Date.now()}-${index}`,
+          name: file.name,
           src,
-          x,
-          y,
+          x: 256 + index * 20,
+          y: 256 + index * 20,
           rotation: 0,
           scaleX: 1,
           scaleY: 1,
@@ -87,8 +84,8 @@ export default function AnimationStudio() {
           keyframes: [
             {
               time: 0,
-              x,
-              y,
+              x: 256 + index * 20,
+              y: 256 + index * 20,
               rotation: 0,
               scaleX: 1,
               scaleY: 1,
@@ -103,7 +100,7 @@ export default function AnimationStudio() {
         }
       })
     },
-    [selectedLayerId]
+    [selectedLayerId],
   )
 
   const updateLayer = useCallback((layerId: string, updates: Partial<ImageLayer>) => {
@@ -119,7 +116,7 @@ export default function AnimationStudio() {
         setSelectedLayerId(null)
       }
     },
-    [selectedLayerId]
+    [selectedLayerId],
   )
 
   const reorderLayers = useCallback((fromIndex: number, toIndex: number) => {
@@ -133,12 +130,15 @@ export default function AnimationStudio() {
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
+      {/* Header */}
       <header className="bg-white border-b border-gray-200 p-4">
         <h1 className="text-xl font-bold text-gray-900">Animation Studio</h1>
         <p className="text-sm text-gray-600">Create animated stickers for Telegram</p>
       </header>
 
+      {/* Main Content */}
       <div className="flex-1 flex flex-col lg:flex-row">
+        {/* Canvas Area */}
         <div className="flex-1 p-4 space-y-4">
           <Card className="flex-1">
             <Canvas
@@ -151,14 +151,13 @@ export default function AnimationStudio() {
             />
           </Card>
 
+          {/* Playback Controls */}
           <Card className="p-4">
-            <PlaybackControls
-              animationState={animationState}
-              onAnimationStateChange={setAnimationState}
-            />
+            <PlaybackControls animationState={animationState} onAnimationStateChange={setAnimationState} />
           </Card>
         </div>
 
+        {/* Side Panel */}
         <div className="w-full lg:w-80 border-t lg:border-t-0 lg:border-l border-gray-200">
           <Tabs defaultValue="layers" className="h-full">
             <TabsList className="grid w-full grid-cols-4">
