@@ -2,8 +2,9 @@
 
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
-import { AnimationState, ImageLayer } from "@/app/page"
-import { exportTgsFromLayers } from "@/utils/export-tgs"
+import { downloadFile } from "@/utils/download-file"
+import { convertToTGS } from "@/utils/tgs-converter"
+import type { ImageLayer, AnimationState } from "@/app/page"
 
 interface ExportPanelProps {
   layers: ImageLayer[]
@@ -12,38 +13,37 @@ interface ExportPanelProps {
 }
 
 export function ExportPanel({ layers, animationState, canvasRef }: ExportPanelProps) {
-  const [exporting, setExporting] = useState(false)
+  const [isExporting, setIsExporting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const handleExportTGS = async () => {
-    setExporting(true)
+    setIsExporting(true)
     setError(null)
-    try {
-      const blob = await exportTgsFromLayers(layers, animationState)
 
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement("a")
-      a.href = url
-      a.download = "sticker.tgs"
-      a.click()
-      URL.revokeObjectURL(url)
-    } catch (err) {
-      console.error(err)
-      setError("Failed to export .tgs")
+    try {
+      const tgsData = await convertToTGS(layers, animationState)
+
+      const blob = new Blob([tgsData], { type: "application/gzip" })
+      downloadFile(blob, "animation.tgs")
+    } catch (err: any) {
+      console.error("TGS Export failed:", err)
+      setError("Failed to export .tgs. Check console for details.")
     } finally {
-      setExporting(false)
+      setIsExporting(false)
     }
   }
 
   return (
     <div className="space-y-4">
-      <h3 className="text-lg font-semibold">Export Options</h3>
+      <h2 className="text-lg font-semibold">Export Options</h2>
 
       {error && <p className="text-red-500 text-sm">{error}</p>}
 
-      <Button onClick={handleExportTGS} disabled={exporting}>
-        {exporting ? "Exporting..." : "Export .tgs for Telegram"}
-      </Button>
+      <div className="flex flex-col space-y-2">
+        <Button onClick={handleExportTGS} disabled={isExporting}>
+          {isExporting ? "Exporting..." : "Export as .tgs (Telegram)"}
+        </Button>
+      </div>
     </div>
   )
 }
