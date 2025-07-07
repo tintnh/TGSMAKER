@@ -23,13 +23,17 @@ export function ExportPanel({ layers, animationState }: ExportPanelProps) {
 
       const tgsData = await convertToTGS(layers, animationState)
 
-      // 🟢 Correct: Force save as .tgs even though it's GZIP internally
-      const blob = new Blob([tgsData], { type: "application/gzip" })
       const name = fileName.trim().replace(/\.tgs$/i, "") || "sticker"
+
+      // ✅ Use correct MIME type and .tgs extension
+      const blob = new Blob([tgsData], {
+        type: "application/x-tgs", // important: not application/gzip
+      })
+
       saveAs(blob, `${name}.tgs`)
     } catch (err) {
-      console.error("Export failed:", err)
-      alert("TGS export failed. Check console for details.")
+      console.error("TGS export failed:", err)
+      alert("Export failed. Check console for details.")
     } finally {
       setExporting(false)
     }
@@ -55,4 +59,4 @@ export function ExportPanel({ layers, animationState }: ExportPanelProps) {
       </Button>
     </div>
   )
-        }
+}
