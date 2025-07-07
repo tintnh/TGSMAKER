@@ -1,224 +1,249 @@
-"use client"
+"use client";
 
-import { useState, useRef, useCallback } from "react"
-import { ImageUploader } from "@/components/image-uploader"
-import { Canvas } from "@/components/canvas"
-import { Timeline } from "@/components/timeline"
-import { TransformTools } from "@/components/transform-tools"
-import { PlaybackControls } from "@/components/playback-controls"
-import { ExportPanel } from "@/components/export-panel"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Card } from "@/components/ui/card"
-import { compressImage } from "@/utils/compress-image"
-import { LayerManager } from "@/components/layer-manager"
+import { useRef, useState, useEffect, useCallback } from "react";
+import { v4 as uuidv4 } from "uuid";
 
-export interface ImageLayer {
-  id: string
-  name: string
-  src: string
-  x: number
-  y: number
-  rotation: number
-  scaleX: number
-  scaleY: number
-  opacity: number
-  visible: boolean
-  keyframes: Keyframe[]
-}
+type Keyframe = {
+  time: number;
+  x: number;
+  y: number;
+};
 
-export interface Keyframe {
-  time: number
-  x: number
-  y: number
-  rotation: number
-  scaleX: number
-  scaleY: number
-  opacity: number
-}
+type SvgLayer = {
+  id: string;
+  name: string;
+  img: HTMLImageElement;
+  x: number;
+  y: number;
+  keyframes: Keyframe[];
+};
 
-export interface AnimationState {
-  currentTime: number
-  duration: number
-  isPlaying: boolean
-  fps: number
-}
+export default function Page() {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [layers, setLayers] = useState<SvgLayer[]>([]);
+  const [draggedLayerId, setDraggedLayerId] = useState<string | null>(null);
+  const [offset, setOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [currentTime, setCurrentTime] = useState<number>(0);
+  const [playing, setPlaying] = useState(false);
+  const animationRef = useRef<number | null>(null);
+  const playStartTime = useRef<number | null>(null);
 
-export default function AnimationStudio() {
-  const [layers, setLayers] = useState<ImageLayer[]>([])
-  const [selectedLayerId, setSelectedLayerId] = useState<string | null>(null)
-  const [animationState, setAnimationState] = useState<AnimationState>({
-    currentTime: 0,
-    duration: 3000,
-    isPlaying: false,
-    fps: 30,
-  })
+  // Upload SVG and add as layer
+  const handleUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || file.type !== "image/svg+xml") return;
 
-  const canvasRef = useRef<HTMLCanvasElement>(null)
+    const reader = new FileReader();
+    reader.onload = () => {
+      const svgText = reader.result as string;
+      const blob = new Blob([svgText], { type: "image/svg+xml" });
+      const url = URL.createObjectURL(blob);
 
-  const addImages = useCallback(
-    (files: File[]) => {
-      files.forEach(async (file, index) => {
-        const isImage = file.type.startsWith("image/") || file.name.endsWith(".svg")
+      const img = new Image();
+      img.onload = () => {
+        const newLayer: SvgLayer = {
+          id: uuidv4(),
+          name: file.name,
+          img,
+          x: 50,
+          y: 50,
+          keyframes: [],
+        };
+        setLayers((prev) => [...prev, newLayer]);
+        URL.revokeObjectURL(url);
+      };
+      img.src = url;
+    };
+    reader.readAsText(file);
+  };
 
-        if (!isImage) {
-          alert(`⚠️ ${file.name} is not a supported image file.`)
-          return
-        }
+  // Redraw all layers
+  const draw = useCallback(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
 
-        try {
-          let src: string
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-          if (file.name.endsWith(".svg")) {
-            // SVGs: use raw object URL
-            src = URL.createObjectURL(file)
-          } else {
-            // Other images: compress before using
-            src = await compressImage(file, {
-              maxSize: 512,
-              quality: 0.6,
-            })
-          }
+    for (const layer of layers) {
+      ctx.drawImage(layer.img, layer.x, layer.y);
+    }
+  }, [layers]);
 
-          const newLayer: ImageLayer = {
-            id: `layer-${Date.now()}-${index}`,
-            name: file.name,
-            src,
-            x: 256 + index * 20,
-            y: 256 + index * 20,
-            rotation: 0,
-            scaleX: 1,
-            scaleY: 1,
-            opacity: 1,
-            visible: true,
-            keyframes: [
-              {
-                time: 0,
-                x: 256 + index * 20,
-                y: 256 + index * 20,
-                rotation: 0,
-                scaleX: 1,
-                scaleY: 1,
-                opacity: 1,
-              },
-            ],
-          }
+  useEffect(() => {
+    draw();
+  }, [draw]);
 
-          setLayers((prev) => [...prev, newLayer])
-          if (!selectedLayerId) {
-            setSelectedLayerId(newLayer.id)
-          }
-        } catch (error) {
-          console.error("Failed to load image:", error)
-          alert(`❌ Failed to load ${file.name}`)
-        }
-      })
-    },
-    [selectedLayerId]
-  )
+  // Drag logic
+  const handleMouseDown = (e: React.MouseEvent) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left;
+    const mouseY = e.clientY - rect.top;
 
-  const updateLayer = useCallback((layerId: string, updates: Partial<ImageLayer>) => {
-    setLayers((prev) => prev.map((layer) => (layer.id === layerId ? { ...layer, ...updates } : layer)))
-  }, [])
-
-  const selectedLayer = layers.find((layer) => layer.id === selectedLayerId)
-
-  const deleteLayer = useCallback(
-    (layerId: string) => {
-      setLayers((prev) => prev.filter((layer) => layer.id !== layerId))
-      if (selectedLayerId === layerId) {
-        setSelectedLayerId(null)
+    for (const layer of [...layers].reverse()) {
+      const { x, y, img } = layer;
+      if (
+        mouseX >= x &&
+        mouseX <= x + img.width &&
+        mouseY >= y &&
+        mouseY <= y + img.height
+      ) {
+        setDraggedLayerId(layer.id);
+        setOffset({ x: mouseX - x, y: mouseY - y });
+        return;
       }
-    },
-    [selectedLayerId]
-  )
+    }
+  };
 
-  const reorderLayers = useCallback((fromIndex: number, toIndex: number) => {
-    setLayers((prev) => {
-      const newLayers = [...prev]
-      const [movedLayer] = newLayers.splice(fromIndex, 1)
-      newLayers.splice(toIndex, 0, movedLayer)
-      return newLayers
-    })
-  }, [])
+  const handleMouseMove = (e: React.MouseEvent) => {
+    if (!draggedLayerId) return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left;
+    const mouseY = e.clientY - rect.top;
+
+    setLayers((prev) =>
+      prev.map((layer) =>
+        layer.id === draggedLayerId
+          ? {
+              ...layer,
+              x: mouseX - offset.x,
+              y: mouseY - offset.y,
+            }
+          : layer
+      )
+    );
+  };
+
+  const handleMouseUp = () => {
+    setDraggedLayerId(null);
+  };
+
+  // Keyframe logic
+  const addKeyframe = (layerId: string) => {
+    setLayers((prev) =>
+      prev.map((layer) =>
+        layer.id === layerId
+          ? {
+              ...layer,
+              keyframes: [...layer.keyframes, {
+                time: currentTime,
+                x: layer.x,
+                y: layer.y
+              }],
+            }
+          : layer
+      )
+    );
+  };
+
+  // Play animation
+  const play = () => {
+    setPlaying(true);
+    playStartTime.current = performance.now();
+    animate();
+  };
+
+  const stop = () => {
+    setPlaying(false);
+    if (animationRef.current) {
+      cancelAnimationFrame(animationRef.current);
+    }
+  };
+
+  const animate = () => {
+    const now = performance.now();
+    const elapsed = (now - (playStartTime.current || 0)) / 1000; // seconds
+    setCurrentTime(elapsed);
+
+    setLayers((prev) =>
+      prev.map((layer) => {
+        const before = [...layer.keyframes].filter(k => k.time <= elapsed).sort((a, b) => b.time - a.time)[0];
+        const after = [...layer.keyframes].filter(k => k.time > elapsed).sort((a, b) => a.time - b.time)[0];
+
+        if (!before || !after) return layer;
+
+        const t = (elapsed - before.time) / (after.time - before.time);
+        const x = before.x + (after.x - before.x) * t;
+        const y = before.y + (after.y - before.y) * t;
+
+        return { ...layer, x, y };
+      })
+    );
+
+    draw();
+    animationRef.current = requestAnimationFrame(animate);
+  };
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col">
-      {/* Header */}
-      <header className="bg-white border-b border-gray-200 p-4">
-        <h1 className="text-xl font-bold text-gray-900">Animation Studio</h1>
-        <p className="text-sm text-gray-600">Create animated stickers for Telegram</p>
-      </header>
+    <main className="p-6">
+      <h1 className="text-2xl font-bold mb-4">SVG Timeline Animation Studio</h1>
 
-      {/* Main Content */}
-      <div className="flex-1 flex flex-col lg:flex-row">
-        {/* Canvas Area */}
-        <div className="flex-1 p-4 space-y-4">
-          <Card className="flex-1">
-            <Canvas
-              ref={canvasRef}
-              layers={layers}
-              selectedLayerId={selectedLayerId}
-              onLayerSelect={setSelectedLayerId}
-              onLayerUpdate={updateLayer}
-              animationState={animationState}
-            />
-          </Card>
+      <input type="file" accept=".svg" onChange={handleUpload} className="mb-4" />
 
-          <Card className="p-4">
-            <PlaybackControls animationState={animationState} onAnimationStateChange={setAnimationState} />
-          </Card>
-        </div>
-
-        {/* Side Panel */}
-        <div className="w-full lg:w-80 border-t lg:border-t-0 lg:border-l border-gray-200">
-          <Tabs defaultValue="layers" className="h-full">
-            <TabsList className="grid w-full grid-cols-4">
-              <TabsTrigger value="layers">Layers</TabsTrigger>
-              <TabsTrigger value="transform">Transform</TabsTrigger>
-              <TabsTrigger value="timeline">Timeline</TabsTrigger>
-              <TabsTrigger value="export">Export</TabsTrigger>
-            </TabsList>
-
-            <TabsContent value="layers" className="p-4 space-y-4">
-              <ImageUploader onImagesAdded={addImages} />
-              <LayerManager
-                layers={layers}
-                selectedLayerId={selectedLayerId}
-                onLayerSelect={setSelectedLayerId}
-                onLayerUpdate={updateLayer}
-                onLayerDelete={deleteLayer}
-                onLayerReorder={reorderLayers}
-              />
-            </TabsContent>
-
-            <TabsContent value="transform" className="p-4">
-              {selectedLayer ? (
-                <TransformTools
-                  layer={selectedLayer}
-                  onUpdate={(updates) => updateLayer(selectedLayer.id, updates)}
-                  animationState={animationState}
-                />
-              ) : (
-                <p className="text-gray-500 text-center py-8">Select a layer to edit</p>
-              )}
-            </TabsContent>
-
-            <TabsContent value="timeline" className="p-4">
-              <Timeline
-                layers={layers}
-                selectedLayerId={selectedLayerId}
-                animationState={animationState}
-                onAnimationStateChange={setAnimationState}
-                onLayerUpdate={updateLayer}
-              />
-            </TabsContent>
-
-            <TabsContent value="export" className="p-4">
-              <ExportPanel layers={layers} animationState={animationState} canvasRef={canvasRef} />
-            </TabsContent>
-          </Tabs>
-        </div>
+      <div className="border border-gray-300 mb-4 relative">
+        <canvas
+          ref={canvasRef}
+          width={800}
+          height={400}
+          onMouseDown={handleMouseDown}
+          onMouseMove={handleMouseMove}
+          onMouseUp={handleMouseUp}
+          className="bg-white w-full"
+        />
       </div>
-    </div>
-  )
-    }
+
+      <div className="mb-4">
+        <label className="mr-2">Time: {currentTime.toFixed(2)}s</label>
+        <input
+          type="range"
+          min={0}
+          max={10}
+          step={0.1}
+          value={currentTime}
+          onChange={(e) => setCurrentTime(parseFloat(e.target.value))}
+          className="w-full"
+        />
+      </div>
+
+      <div className="space-y-4">
+        {layers.map((layer) => (
+          <div key={layer.id} className="flex items-center gap-4">
+            <span className="w-32 truncate">{layer.name}</span>
+            <button
+              onClick={() => addKeyframe(layer.id)}
+              className="bg-blue-500 text-white px-3 py-1 rounded"
+            >
+              + Keyframe @ {currentTime.toFixed(1)}s
+            </button>
+            <span>
+              🎯 {layer.x}, {layer.y}
+            </span>
+            <span>
+              ⏱️ {layer.keyframes.length} keyframes
+            </span>
+          </div>
+        ))}
+      </div>
+
+      <div className="mt-6 flex gap-4">
+        <button
+          onClick={play}
+          className="bg-green-600 text-white px-4 py-2 rounded"
+        >
+          ▶ Play
+        </button>
+        <button
+          onClick={stop}
+          className="bg-red-600 text-white px-4 py-2 rounded"
+        >
+          ⏹ Stop
+        </button>
+      </div>
+    </main>
+  );
+}
