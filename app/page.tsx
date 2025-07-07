@@ -66,15 +66,23 @@ export default function AnimationStudio() {
         }
 
         try {
-          const compressedSrc = await compressImage(file, {
-            maxSize: 512,
-            quality: 0.6,
-          })
+          let src: string
+
+          if (file.name.endsWith(".svg")) {
+            // SVGs: use raw object URL
+            src = URL.createObjectURL(file)
+          } else {
+            // Other images: compress before using
+            src = await compressImage(file, {
+              maxSize: 512,
+              quality: 0.6,
+            })
+          }
 
           const newLayer: ImageLayer = {
             id: `layer-${Date.now()}-${index}`,
             name: file.name,
-            src: compressedSrc,
+            src,
             x: 256 + index * 20,
             y: 256 + index * 20,
             rotation: 0,
@@ -100,7 +108,7 @@ export default function AnimationStudio() {
             setSelectedLayerId(newLayer.id)
           }
         } catch (error) {
-          console.error("Compression failed:", error)
+          console.error("Failed to load image:", error)
           alert(`❌ Failed to load ${file.name}`)
         }
       })
@@ -213,4 +221,4 @@ export default function AnimationStudio() {
       </div>
     </div>
   )
-}
+    }
