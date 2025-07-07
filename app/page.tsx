@@ -1,95 +1,213 @@
-"use client";
+"use client"
 
-import { useState, useRef, useEffect } from "react";
-import { v4 as uuidv4 } from "uuid";
+import { useState, useRef, useCallback } from "react"
+import { ImageUploader } from "@/components/image-uploader"
+import { Canvas } from "@/components/canvas"
+import { Timeline } from "@/components/timeline"
+import { TransformTools } from "@/components/transform-tools"
+import { PlaybackControls } from "@/components/playback-controls"
+import { ExportPanel } from "@/components/export-panel"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Card } from "@/components/ui/card"
+import { compressImage } from "@/utils/compress-image"
+import { LayerManager } from "@/components/layer-manager"
 
-type SvgLayer = {
-  id: string;
-  content: string;
-};
+export interface ImageLayer {
+  id: string
+  name: string
+  src: string
+  x: number
+  y: number
+  rotation: number
+  scaleX: number
+  scaleY: number
+  opacity: number
+  visible: boolean
+  keyframes: Keyframe[]
+}
 
-export default function HomePage() {
-  const [layers, setLayers] = useState<SvgLayer[]>([]);
-  const [error, setError] = useState<string | null>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+export interface Keyframe {
+  time: number
+  x: number
+  y: number
+  rotation: number
+  scaleX: number
+  scaleY: number
+  opacity: number
+}
 
-  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
+export interface AnimationState {
+  currentTime: number
+  duration: number
+  isPlaying: boolean
+  fps: number
+}
 
-    if (file.type !== "image/svg+xml") {
-      setError("Please upload a valid SVG file.");
-      return;
-    }
+export default function AnimationStudio() {
+  const [layers, setLayers] = useState<ImageLayer[]>([])
+  const [selectedLayerId, setSelectedLayerId] = useState<string | null>(null)
+  const [animationState, setAnimationState] = useState<AnimationState>({
+    currentTime: 0,
+    duration: 3000,
+    isPlaying: false,
+    fps: 30,
+  })
 
-    const reader = new FileReader();
+  const canvasRef = useRef<HTMLCanvasElement>(null)
 
-    reader.onload = () => {
-      const text = reader.result as string;
-      const newLayer: SvgLayer = {
-        id: uuidv4(),
-        content: text,
-      };
-      setLayers([newLayer]); // For now, only keep one layer
-      setError(null);
-    };
+  const addImages = useCallback(
+    (files: File[]) => {
+      files.forEach(async (file, index) => {
+        const id = `layer-${Date.now()}-${index}`
+        let src = ""
+        let name = file.name
 
-    reader.onerror = () => {
-      setError("Error reading file.");
-    };
+        const x = 256 + index * 20
+        const y = 256 + index * 20
 
-    reader.readAsText(file);
-  };
+        if (file.type === "image/svg+xml") {
+          const text = await file.text()
+          const blob = new Blob([text], { type: "image/svg+xml;charset=utf-8" })
+          src = URL.createObjectURL(blob)
+        } else {
+          src = await compressImage(file, { maxSize: 512, quality: 0.6 })
+        }
 
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas || layers.length === 0) return;
+        const newLayer: ImageLayer = {
+          id,
+          name,
+          src,
+          x,
+          y,
+          rotation: 0,
+          scaleX: 1,
+          scaleY: 1,
+          opacity: 1,
+          visible: true,
+          keyframes: [
+            {
+              time: 0,
+              x,
+              y,
+              rotation: 0,
+              scaleX: 1,
+              scaleY: 1,
+              opacity: 1,
+            },
+          ],
+        }
 
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
+        setLayers((prev) => [...prev, newLayer])
+        if (!selectedLayerId) {
+          setSelectedLayerId(newLayer.id)
+        }
+      })
+    },
+    [selectedLayerId]
+  )
 
-    const layer = layers[0]; // Only show the first one for now
+  const updateLayer = useCallback((layerId: string, updates: Partial<ImageLayer>) => {
+    setLayers((prev) => prev.map((layer) => (layer.id === layerId ? { ...layer, ...updates } : layer)))
+  }, [])
 
-    const svgBlob = new Blob([layer.content], {
-      type: "image/svg+xml;charset=utf-8",
-    });
-    const url = URL.createObjectURL(svgBlob);
+  const selectedLayer = layers.find((layer) => layer.id === selectedLayerId)
 
-    const img = new Image();
-    img.onload = () => {
-      canvas.width = img.width;
-      canvas.height = img.height;
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.drawImage(img, 0, 0);
-      URL.revokeObjectURL(url);
-    };
-    img.onerror = () => {
-      setError("Failed to load SVG onto canvas.");
-    };
-    img.src = url;
-  }, [layers]);
+  const deleteLayer = useCallback(
+    (layerId: string) => {
+      setLayers((prev) => prev.filter((layer) => layer.id !== layerId))
+      if (selectedLayerId === layerId) {
+        setSelectedLayerId(null)
+      }
+    },
+    [selectedLayerId]
+  )
+
+  const reorderLayers = useCallback((fromIndex: number, toIndex: number) => {
+    setLayers((prev) => {
+      const newLayers = [...prev]
+      const [movedLayer] = newLayers.splice(fromIndex, 1)
+      newLayers.splice(toIndex, 0, movedLayer)
+      return newLayers
+    })
+  }, [])
 
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center p-8">
-      <h1 className="text-2xl font-bold mb-4">Upload SVG to Preview</h1>
+    <div className="min-h-screen bg-gray-50 flex flex-col">
+      <header className="bg-white border-b border-gray-200 p-4">
+        <h1 className="text-xl font-bold text-gray-900">Animation Studio</h1>
+        <p className="text-sm text-gray-600">Create animated stickers for Telegram</p>
+      </header>
 
-      <input
-        type="file"
-        accept=".svg"
-        onChange={handleFileUpload}
-        className="mb-4"
-      />
+      <div className="flex-1 flex flex-col lg:flex-row">
+        <div className="flex-1 p-4 space-y-4">
+          <Card className="flex-1">
+            <Canvas
+              ref={canvasRef}
+              layers={layers}
+              selectedLayerId={selectedLayerId}
+              onLayerSelect={setSelectedLayerId}
+              onLayerUpdate={updateLayer}
+              animationState={animationState}
+            />
+          </Card>
 
-      {error && <p className="text-red-500">{error}</p>}
+          <Card className="p-4">
+            <PlaybackControls
+              animationState={animationState}
+              onAnimationStateChange={setAnimationState}
+            />
+          </Card>
+        </div>
 
-      <canvas
-        ref={canvasRef}
-        style={{
-          border: "1px solid #ccc",
-          maxWidth: "100%",
-          background: "#f5f5f5",
-        }}
-      />
-    </main>
-  );
+        <div className="w-full lg:w-80 border-t lg:border-t-0 lg:border-l border-gray-200">
+          <Tabs defaultValue="layers" className="h-full">
+            <TabsList className="grid w-full grid-cols-4">
+              <TabsTrigger value="layers">Layers</TabsTrigger>
+              <TabsTrigger value="transform">Transform</TabsTrigger>
+              <TabsTrigger value="timeline">Timeline</TabsTrigger>
+              <TabsTrigger value="export">Export</TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="layers" className="p-4 space-y-4">
+              <ImageUploader onImagesAdded={addImages} />
+              <LayerManager
+                layers={layers}
+                selectedLayerId={selectedLayerId}
+                onLayerSelect={setSelectedLayerId}
+                onLayerUpdate={updateLayer}
+                onLayerDelete={deleteLayer}
+                onLayerReorder={reorderLayers}
+              />
+            </TabsContent>
+
+            <TabsContent value="transform" className="p-4">
+              {selectedLayer ? (
+                <TransformTools
+                  layer={selectedLayer}
+                  onUpdate={(updates) => updateLayer(selectedLayer.id, updates)}
+                  animationState={animationState}
+                />
+              ) : (
+                <p className="text-gray-500 text-center py-8">Select a layer to edit</p>
+              )}
+            </TabsContent>
+
+            <TabsContent value="timeline" className="p-4">
+              <Timeline
+                layers={layers}
+                selectedLayerId={selectedLayerId}
+                animationState={animationState}
+                onAnimationStateChange={setAnimationState}
+                onLayerUpdate={updateLayer}
+              />
+            </TabsContent>
+
+            <TabsContent value="export" className="p-4">
+              <ExportPanel layers={layers} animationState={animationState} canvasRef={canvasRef} />
+            </TabsContent>
+          </Tabs>
+        </div>
+      </div>
+    </div>
+  )
 }
