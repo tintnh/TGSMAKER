@@ -1,167 +1,158 @@
 "use client"
 
-import { useState } from "react"
-import { Button } from "@/components/ui/button"
-import { v4 as uuidv4 } from "uuid"
-
-export type VectorShape = {
-  id: string
-  type: "rectangle" | "ellipse" | "path"
-  x: number
-  y: number
-  width: number
-  height: number
-  fill: string
-  stroke: string
-  strokeWidth: number
-  pathData?: string
-}
+import React, { useRef, useState } from "react"
 
 interface VectorDrawerProps {
-  shapes: VectorShape[]
-  setShapes: (shapes: VectorShape[]) => void
+  onAddVectorLayer: (vectorData: VectorShapeData) => void
 }
 
-export function VectorDrawer({ shapes, setShapes }: VectorDrawerProps) {
-  const [currentType, setCurrentType] = useState<"rectangle" | "ellipse" | "path">("rectangle")
+export interface VectorShapeData {
+  type: "path"
+  path: string
+  stroke: string
+  strokeWidth: number
+  fill: string
+}
 
+export default function VectorDrawer({ onAddVectorLayer }: VectorDrawerProps) {
+  const [paths, setPaths] = useState<string[]>([])
+  const [currentPath, setCurrentPath] = useState<string>("")
+  const svgRef = useRef<SVGSVGElement>(null)
+
+  const [stroke, setStroke] = useState("#000000")
+  const [strokeWidth, setStrokeWidth] = useState(2)
+  const [fill, setFill] = useState("none")
+
+  // Handle pointer down: start new path
+  const onPointerDown = (e: React.PointerEvent) => {
+    const svg = svgRef.current
+    if (!svg) return
+
+    const pt = svg.createSVGPoint()
+    pt.x = e.clientX
+    pt.y = e.clientY
+    const svgP = pt.matrixTransform(svg.getScreenCTM()?.inverse())
+
+    setCurrentPath(`M${svgP.x.toFixed(2)} ${svgP.y.toFixed(2)}`)
+  }
+
+  // Handle pointer move: add line segments to current path
+  const onPointerMove = (e: React.PointerEvent) => {
+    if (!currentPath) return
+    const svg = svgRef.current
+    if (!svg) return
+
+    const pt = svg.createSVGPoint()
+    pt.x = e.clientX
+    pt.y = e.clientY
+    const svgP = pt.matrixTransform(svg.getScreenCTM()?.inverse())
+
+    setCurrentPath((prev) => prev + ` L${svgP.x.toFixed(2)} ${svgP.y.toFixed(2)}`)
+  }
+
+  // Handle pointer up: finish current path and add to paths array
+  const onPointerUp = () => {
+    if (currentPath) {
+      setPaths((prev) => [...prev, currentPath])
+      setCurrentPath("")
+    }
+  }
+
+  // Clear all drawn paths
+  const clearPaths = () => {
+    setPaths([])
+    setCurrentPath("")
+  }
+
+  // Add last path (or all paths combined) as vector layer
   const addShape = () => {
-    const baseShape: VectorShape = {
-      id: uuidv4(),
-      type: currentType,
-      x: 100,
-      y: 100,
-      width: 100,
-      height: 100,
-      fill: "#00bcd4",
-      stroke: "#333",
-      strokeWidth: 2,
-    }
+    const combinedPath = [...paths, currentPath].filter(Boolean).join(" ")
+    if (!combinedPath) return
 
-    if (currentType === "path") {
-      baseShape.pathData = "M10 80 C 40 10, 65 10, 95 80 S 150 150, 180 80"
-    }
+    onAddVectorLayer({
+      type: "path",
+      path: combinedPath,
+      stroke,
+      strokeWidth,
+      fill,
+    })
 
-    setShapes([...shapes, baseShape])
-  }
-
-  const updateShape = (id: string, updates: Partial<VectorShape>) => {
-    setShapes(shapes.map(s => (s.id === id ? { ...s, ...updates } : s)))
-  }
-
-  const deleteShape = (id: string) => {
-    setShapes(shapes.filter(s => s.id !== id))
+    clearPaths()
   }
 
   return (
-    <div className="space-y-2">
-      <div className="flex items-center gap-2">
-        <select
-          className="border p-1 rounded"
-          value={currentType}
-          onChange={(e) => setCurrentType(e.target.value as any)}
-        >
-          <option value="rectangle">Rectangle</option>
-          <option value="ellipse">Ellipse</option>
-          <option value="path">Path</option>
-        </select>
-        <Button onClick={addShape}>Add</Button>
+    <div className="flex flex-col space-y-4">
+      <div className="flex space-x-2">
+        <label className="flex items-center space-x-1">
+          <span>Stroke:</span>
+          <input
+            type="color"
+            value={stroke}
+            onChange={(e) => setStroke(e.target.value)}
+            className="w-10 h-6 p-0 border rounded"
+          />
+        </label>
+        <label className="flex items-center space-x-1">
+          <span>Stroke Width:</span>
+          <input
+            type="number"
+            min={1}
+            max={10}
+            value={strokeWidth}
+            onChange={(e) => setStrokeWidth(Number(e.target.value))}
+            className="w-16 p-1 border rounded"
+          />
+        </label>
+        <label className="flex items-center space-x-1">
+          <span>Fill:</span>
+          <input
+            type="color"
+            value={fill === "none" ? "#ffffff" : fill}
+            onChange={(e) => setFill(e.target.value)}
+            className="w-10 h-6 p-0 border rounded"
+          />
+          <button
+            type="button"
+            onClick={() => setFill("none")}
+            className="ml-2 px-2 py-1 border rounded text-sm"
+          >
+            None
+          </button>
+        </label>
       </div>
 
-      <svg viewBox="0 0 512 512" width={512} height={512} className="border rounded bg-white">
-        {shapes.map((shape) => {
-          switch (shape.type) {
-            case "rectangle":
-              return (
-                <rect
-                  key={shape.id}
-                  x={shape.x}
-                  y={shape.y}
-                  width={shape.width}
-                  height={shape.height}
-                  fill={shape.fill}
-                  stroke={shape.stroke}
-                  strokeWidth={shape.strokeWidth}
-                />
-              )
-            case "ellipse":
-              return (
-                <ellipse
-                  key={shape.id}
-                  cx={shape.x + shape.width / 2}
-                  cy={shape.y + shape.height / 2}
-                  rx={shape.width / 2}
-                  ry={shape.height / 2}
-                  fill={shape.fill}
-                  stroke={shape.stroke}
-                  strokeWidth={shape.strokeWidth}
-                />
-              )
-            case "path":
-              return (
-                <path
-                  key={shape.id}
-                  d={shape.pathData || ""}
-                  fill={shape.fill}
-                  stroke={shape.stroke}
-                  strokeWidth={shape.strokeWidth}
-                />
-              )
-            default:
-              return null
-          }
-        })}
+      <svg
+        ref={svgRef}
+        className="border rounded bg-white touch-none select-none"
+        style={{ width: "100%", height: "300px", touchAction: "none" }}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onPointerCancel={onPointerUp}
+        onPointerLeave={onPointerUp}
+      >
+        {paths.map((d, i) => (
+          <path key={i} d={d} stroke={stroke} strokeWidth={strokeWidth} fill={fill} strokeLinecap="round" strokeLinejoin="round" />
+        ))}
+        {currentPath && (
+          <path d={currentPath} stroke={stroke} strokeWidth={strokeWidth} fill={fill} strokeLinecap="round" strokeLinejoin="round" />
+        )}
       </svg>
 
-      <div className="space-y-2">
-        {shapes.map((shape) => (
-          <div key={shape.id} className="border rounded p-2 space-y-1">
-            <div className="flex justify-between">
-              <strong>{shape.type}</strong>
-              <Button variant="destructive" size="sm" onClick={() => deleteShape(shape.id)}>
-                Delete
-              </Button>
-            </div>
-            <div className="flex flex-col space-y-1">
-              <label>
-                Fill:
-                <input
-                  type="color"
-                  value={shape.fill}
-                  onChange={(e) => updateShape(shape.id, { fill: e.target.value })}
-                />
-              </label>
-              <label>
-                Stroke:
-                <input
-                  type="color"
-                  value={shape.stroke}
-                  onChange={(e) => updateShape(shape.id, { stroke: e.target.value })}
-                />
-              </label>
-              <label>
-                Stroke Width:
-                <input
-                  type="number"
-                  value={shape.strokeWidth}
-                  onChange={(e) => updateShape(shape.id, { strokeWidth: +e.target.value })}
-                />
-              </label>
-              {shape.type === "path" && (
-                <label>
-                  Path Data:
-                  <input
-                    type="text"
-                    value={shape.pathData}
-                    onChange={(e) => updateShape(shape.id, { pathData: e.target.value })}
-                    className="w-full border px-2 py-1 rounded"
-                  />
-                </label>
-              )}
-            </div>
-          </div>
-        ))}
+      <div className="flex space-x-2">
+        <button
+          onClick={addShape}
+          className="px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90"
+        >
+          Add Shape
+        </button>
+        <button
+          onClick={clearPaths}
+          className="px-4 py-2 border rounded-md hover:bg-gray-100"
+        >
+          Clear
+        </button>
       </div>
     </div>
   )
-      }
+    }
